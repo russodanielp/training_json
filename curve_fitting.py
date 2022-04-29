@@ -8,11 +8,18 @@ import os
 import config
 import glob
 import pandas as pd
+import ntpath
 
 
 CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
+FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'failed_aids')
+PASSED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'AID')
 ASSAY_FOLDERS = glob.glob(os.path.join(CONCISE_DATA_DIR, '*'))
 TARGET_ASSAYS = sorted(pd.read_table(os.path.join('data', 'dr_aids.txt'), header=None)[0].values.tolist())
+FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
+PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
+ALL_ASSAY_CSV = FAILED_CSV + PASSED_CSV
+
 
 
 def hill_curve(conc: float, ac50: float, top: float, slope: float) -> float:
@@ -47,6 +54,10 @@ def read_aid(pubchem_aid: int) -> pd.DataFrame:
     if not os.path.exists(full_path):
         return pd.DataFrame()
 
+    # DELETE ME ONLY USED FOR TESTING
+    if os.path.exists(full_path) and pd.read_csv(full_path, error_bad_lines=False).empty:
+        return pd.DataFrame()
+
     # the first n rows are a header
     # that describes the data
     # dose response example is 434931
@@ -59,18 +70,47 @@ def read_aid(pubchem_aid: int) -> pd.DataFrame:
     return assay_results
 
 
-def find_unique_columns():
-
+def find_unique_columns() -> list:
+    """ finds and prints the unique columns across the set of concise csv """
     all_columns = []
 
     for aid in TARGET_ASSAYS:
         assay_data = read_aid(aid)
         if not assay_data.empty:
             all_columns.extend(list(assay_data.columns))
+            print(aid, list(assay_data.columns))
 
     return list(set(all_columns))
 
+
+def find_columns_nada(to_csv=False, unique=False) -> list:
+    """ finds and prints the unique columns across the set of failed csvs
+
+    to_csv: str, path to write the unique columns to, if False return the list
+    """
+    all_columns = []
+
+    for aid_file in ALL_ASSAY_CSV:
+        # just read the header so we dont
+        # load all the data into memory
+        # to speed things up
+        assay_data_columns = pd.read_csv(aid_file, index_col=0, nrows=0)
+        all_columns.extend(list(assay_data_columns.columns))
+
+    all_columns = list(set(all_columns)) if unique else list(all_columns)
+
+    if not to_csv:
+        return all_columns
+
+    f = open(to_csv, 'w')
+
+    for column in all_columns:
+        f.write(str(column) + '\n')
+    f.close()
+
 if __name__ == '__main__':
-    print(find_unique_columns())
+    find_columns_nada('data/columns.txt', unique=False)
+
+
 
 
