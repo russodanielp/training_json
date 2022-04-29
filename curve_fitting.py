@@ -8,6 +8,7 @@ import os
 import config
 import glob
 import pandas as pd
+import extractor as ext
 import ntpath
 
 
@@ -94,8 +95,11 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
         # just read the header so we dont
         # load all the data into memory
         # to speed things up
-        assay_data_columns = pd.read_csv(aid_file, index_col=0, nrows=0)
-        all_columns.extend(list(assay_data_columns.columns))
+        try:
+            assay_data_columns = pd.read_csv(aid_file, index_col=0, nrows=0)
+            all_columns.extend(list(assay_data_columns.columns))
+        except pd.errors.ParserError as e:
+            print(f"Error on {aid_file}")
 
     all_columns = list(set(all_columns)) if unique else list(all_columns)
 
@@ -107,6 +111,31 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
     for column in all_columns:
         f.write(str(column) + '\n')
     f.close()
+
+
+def convert_csv(aid_file: str) -> pd.DataFrame:
+    """ reads a csv file from nada and converts it into long format after identifying the activity
+     columns """
+    df = pd.read_csv(aid_file, index_col=0)
+    act_conc_cols = df.columns[list(map(ext.find_activity_columns, df.columns))]
+
+    df = df[act_conc_cols]
+
+
+
+def build_sql_db():
+    """ using the csv files from nada, build a sql database containing call concentration-response information
+
+     The algorithm goes as follows:
+     1) read csv file for an assay
+     2) identify concentration-response columns
+     3) extract the units and concentration and convert to uM
+     4) convert to long format and store in a sql database
+
+     """
+
+
+
 
 if __name__ == '__main__':
     find_columns_nada('data/columns.txt', unique=False)
