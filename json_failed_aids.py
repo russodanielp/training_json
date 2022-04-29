@@ -8,6 +8,43 @@ import config
 import glob
 import ntpath
 
+
+# This is taken from the ASN specification file
+# given to me by Paul Theissen at NCBI
+# now lives on the Box directory
+ACITIVITY_MAPPER = {
+                        1: "ppt",
+                        2: "ppm",
+                        3: "ppb",
+                        4: "mm",
+                        5: "um",
+                        6: "nm",
+                        7: "pm",
+                        8: "fm",
+                        9: "mgml",
+                        10: "ugml",
+                        11: "ngml",
+                        12: "pgml",
+                        13: "fgml",
+                        14: "m",
+                        15: "percent",
+                        16: "ratio",
+                        17: "sec ",
+                        18: "rsec",
+                        19: "min",
+                        20: "rmin",
+                        21: "day",
+                        22: "rday",
+                        23: "ml-min-kg",
+                        24: "l-kg",
+                        25: " hr-ng-ml",
+                        26: " cm-sec",
+                        27: " mg-kg",
+                        254: "none",
+                        255: "unspecified",
+                        None: None
+                     }
+
 def parse_json(json_file: str) -> pd.DataFrame:
     """ parse a json file and convert to a dataframe in a similar fashion as the ones returned by PugREST
     the columns should be AID SID Concentration	Concentration Unit Response	Response Unit"""
@@ -42,7 +79,8 @@ def parse_json(json_file: str) -> pd.DataFrame:
         if 'tc' in tid.keys():
 
             tid_id = tid["tid"]
-            conc_tids[tid_id] = [tid["unit"], tid["tc"]["concentration"], tid["tc"]["unit"]]
+            # some aid/tids dont have units? e.g.,1159614/26
+            conc_tids[tid_id] = [ACITIVITY_MAPPER[tid.get("unit", None)], tid["tc"]["concentration"], ACITIVITY_MAPPER[tid["tc"]["unit"]]]
 
     result_dic = {}
 
@@ -53,7 +91,15 @@ def parse_json(json_file: str) -> pd.DataFrame:
         cmp_responses = filter(lambda datum: datum["tid"] in conc_tids.keys(), compound["data"])
         cmp_data = {}
         for response in cmp_responses:
-            cmp_data[response["tid"]] = response["value"]["fval"]
+            # needed to check if fval exists bc 1159614/26 again
+            # note: can't use normal false here because an fval of 0
+            # is not true and would not work
+            # now that i have the ASN specification I should probably
+            # do this properly....
+            if response["value"].get("fval", "Missing") != "Missing":
+                cmp_data[response["tid"]] = response["value"]["fval"]
+            else:
+                cmp_data[response["tid"]] = float(response["value"]["sval"])
         result_dic[sid] = cmp_data
 
     responses = pd.DataFrame(result_dic)
@@ -146,7 +192,7 @@ def convert_json(target_dir):
         csv_file = os.path.join(target_dir, '{}.csv'.format(base_filename))
         if not os.path.exists(csv_file):
             df = parse_json(json_file)
-            df.to_csv(csv_file)
+            df.to_csv(csv_file, index=None)
 
 
 if __name__ == '__main__':

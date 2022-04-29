@@ -8,16 +8,22 @@ import os
 import config
 import glob
 import pandas as pd
+import numpy as np
+from scipy.optimize import curve_fit
+import seaborn as sns
+import matplotlib.pyplot as plt
 import extractor as ext
 import ntpath
 
 
 CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
 FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'failed_aids')
+ANOTHER_FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'another_failed_aids')
 PASSED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'AID')
 ASSAY_FOLDERS = glob.glob(os.path.join(CONCISE_DATA_DIR, '*'))
 TARGET_ASSAYS = sorted(pd.read_table(os.path.join('data', 'dr_aids.txt'), header=None)[0].values.tolist())
 FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
+ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = FAILED_CSV + PASSED_CSV
 
@@ -25,8 +31,8 @@ ALL_ASSAY_CSV = FAILED_CSV + PASSED_CSV
 
 def hill_curve(conc: float, ac50: float, top: float, slope: float) -> float:
     """ returns """
-    denom = conc**slope + ac50**slope
-    return top * (conc**slope / denom)
+    denom = np.power(conc, slope) + np.power(ac50, slope)
+    return top * (np.power(conc, slope) / denom)
 
 
 def find_folder(pubchem_aid: int) -> str:
@@ -113,13 +119,6 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
     f.close()
 
 
-def convert_csv(aid_file: str) -> pd.DataFrame:
-    """ reads a csv file from nada and converts it into long format after identifying the activity
-     columns """
-    df = pd.read_csv(aid_file, index_col=0)
-    act_conc_cols = df.columns[list(map(ext.find_activity_columns, df.columns))]
-
-    df = df[act_conc_cols]
 
 
 
@@ -133,12 +132,68 @@ def build_sql_db():
      4) convert to long format and store in a sql database
 
      """
+    pass
+
+def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
+    """ takes assay information as a dataframe as will fit each SID to a hill curve and extract
+    the apprioriate parameters """
+
+    # infinity covariance matrix
+    # https://stackoverflow.com/questions/27230285/numpy-polyfit-gives-useful-fit-but-infinite-covariance-matrix
+
+    data = []
+
+    for sid, sid_data in df.groupby('SID'):
+        x = sid_data['Concentration'].values
+        y = sid_data['Response'].values
+        init_params = np.array([1, 1, 1.0])
+
+        try:
+            fit_params, pcov = curve_fit(hill_curve, x, y, init_params)
+            model_preds = hill_curve(x, *fit_params)
+            error = model_preds - y
+            SE = np.square(error)  # squared errors
+            MSE = np.mean(SE)  # mean squared errors
+            RMSE = np.sqrt(MSE)  # Root Mean Squared Error, RMSE
+            Rsquared = 1.0 - (np.var(error) / np.var(y))
+
+            vals = [sid] + list(fit_params) + [SE, MSE, RMSE, Rsquared]
+
+        except RuntimeError as e:
+            vals = [sid, None, None, None, None, None, None, None]
+
+        data.append(vals)
+
+    return pd.DataFrame(data, columns=['SID', 'AC50', 'TOP', 'SLOPE', 'SE', 'MSE', 'RMSE', 'R^2'])
 
 
+def plot_dosresponse(df, sid):
+    df = df[df.SID == sid]
+    df['Concentration_Log'] = np.log10(df['Concentration'].astype(float))
+    df['Response'] = df['Response'].astype(float)
 
+    ax = sns.scatterplot(data=df, x='Concentration_Log', y='Response')
+
+    ac50, top, slope = df.AC50.iloc[0], df.TOP.iloc[0], df.SLOPE.iloc[0]
+
+    print(ac50, top, slope)
+    xs = np.linspace(df.Concentration.min(), df.Concentration.max(), 100)
+
+    ys = hill_curve(xs, ac50, top, slope)
+
+    ax.plot(np.log10(xs), ys)
+
+    plt.show()
 
 if __name__ == '__main__':
-    find_columns_nada('data/columns.txt', unique=False)
+    df = pd.read_csv(os.path.join(ANOTHER_FAILED_CSV_DIR, '1053143.csv'), index_col=0)
+    print(df)
+    ac50s = fit_assay_to_hill(df)
+    print(df)
+    df = df.merge(ac50s).dropna()
+    df = df[df.TOP > 80]
+    print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
+    plot_dosresponse(df, 85199216)
 
 
 
