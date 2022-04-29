@@ -1,0 +1,26 @@
+name: intro-chem
+channels:
+  - bioconda
+  - rdkit
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - jupyter=1.0.0
+  - jupyterlab=3.2.1
+  - matplotlib=3.5.0
+  - pandas=1.1.3
+  - python=3.7.11
+  - pytorch=1.10.1
+  - rdkit=2020.09.1.0
+  - scikit-learn=1.0.1
+  - scipy=1.7.1
+  - seaborn=0.11.2
+  - smina=2017.11.9
+  - torchaudio=0.10.1
+  - torchvision=0.11.2
+  - py3dmol
+  - chembl_webresource_client
+  - openbabel
+  - mols2grid
+  - plotly=3.6.1
