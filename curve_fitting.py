@@ -2,7 +2,7 @@
 module for curve fitting assays from a pubchem
 
 this stack overflow has a demo on how to curve fit a function: https://stackoverflow.com/questions/55078451/how-to-use-curvefit-in-python
-
+this guy also: https://gist.github.com/yannabraham/5f210fed773785d8b638
  """
 import os
 import config
