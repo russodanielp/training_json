@@ -177,23 +177,26 @@ def plot_dosresponse(df, sid):
     ac50, top, slope = df.AC50.iloc[0], df.TOP.iloc[0], df.SLOPE.iloc[0]
 
     print(ac50, top, slope)
-    xs = np.linspace(df.Concentration.min(), df.Concentration.max(), 100)
-
-    ys = hill_curve(xs, ac50, top, slope)
-
-    ax.plot(np.log10(xs), ys)
+    xs = np.linspace(df.Concentration_Log.min(), df.Concentration_Log.max(), 100)
+    #xs = np.linspace(0.001, df.Concentration.max(), 100)
+    ys = hill_curve(10**xs, ac50, top, slope)
+    #ax.plot(xs, ys)
+    ax.plot(xs, ys)
 
     plt.show()
 
 if __name__ == '__main__':
-    df = pd.read_csv(os.path.join(ANOTHER_FAILED_CSV_DIR, '1053143.csv'), index_col=0)
-    print(df)
+
+    TARGET_AID = 1346983
+    TARGET_SID = 144205764
+    df = pd.read_csv(os.path.join(ANOTHER_FAILED_CSV_DIR, f'{TARGET_AID}.csv'), index_col=0)
+    df = df.query("SID == @TARGET_SID")
+    #df['Response'] = df['Response']*-1
     ac50s = fit_assay_to_hill(df)
-    print(df)
     df = df.merge(ac50s).dropna()
-    df = df[df.TOP > 80]
-    print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
-    plot_dosresponse(df, 85199216)
+    #df = df[df.TOP > 80]
+    #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
+    plot_dosresponse(df, TARGET_SID)
 
 
 
