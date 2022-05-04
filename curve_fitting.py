@@ -14,6 +14,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import extractor as ext
 import ntpath
+import sqlite3 as sql
 
 
 CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
@@ -25,7 +26,7 @@ TARGET_ASSAYS = sorted(pd.read_table(os.path.join('data', 'dr_aids.txt'), header
 FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
 ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
-ALL_ASSAY_CSV = FAILED_CSV + PASSED_CSV
+ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
 
 
 
@@ -122,17 +123,45 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
 
 
 
-def build_sql_db():
-    """ using the csv files from nada, build a sql database containing call concentration-response information
-
-     The algorithm goes as follows:
-     1) read csv file for an assay
-     2) identify concentration-response columns
-     3) extract the units and concentration and convert to uM
-     4) convert to long format and store in a sql database
+def build_sql_db(DB_FILE):
+    """ build a sqlite database from all the converted CSV files
 
      """
-    pass
+
+    con = sql.connect(DB_FILE)
+
+    TOTAL_ASSAYS = len(PASSED_CSV) + len(ANOTHER_FAILED_CSV)
+    COUNTER = 1
+
+    # create a counter for id
+    LAST_ID = 1
+
+    # these files come from PUG-REST
+    # the columns are not correct, I
+    # reported the bug to the Pug-REST people
+    # so we need to switch the concentration
+    # and response units
+    for assay in PASSED_CSV:
+        df = pd.read_csv(assay, index_col=0).rename(columns={'Concentration Unit': 'Response Unit',
+                                                             'Response Unit': 'Concentration Unit'})
+        ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
+        df['ID'] = ids
+        df.to_sql('dose_response', con=con, if_exists='append', index=False)
+        print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
+        COUNTER += 1
+        LAST_ID = ids[-1]
+    # for the converted ones just
+    # do as normal.  Not every dataframe
+    # has data.  Need to check why
+    for assay in ANOTHER_FAILED_CSV:
+        df = pd.read_csv(assay)
+
+        ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
+        df['ID'] = ids
+        df.to_sql('dose_response', con=con, if_exists='append', index=False)
+        print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
+        COUNTER += 1
+        LAST_ID = ids[-1]
 
 def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
     """ takes assay information as a dataframe as will fit each SID to a hill curve and extract
@@ -187,17 +216,21 @@ def plot_dosresponse(df, sid):
 
 if __name__ == '__main__':
 
-    TARGET_AID = 1346983
-    TARGET_SID = 144205764
-    df = pd.read_csv(os.path.join(ANOTHER_FAILED_CSV_DIR, f'{TARGET_AID}.csv'), index_col=0)
-    df = df.query("SID == @TARGET_SID")
-    #df['Response'] = df['Response']*-1
-    ac50s = fit_assay_to_hill(df)
-    df = df.merge(ac50s).dropna()
-    #df = df[df.TOP > 80]
-    #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
-    plot_dosresponse(df, TARGET_SID)
+    #TARGET_AID = 1346983
+    #TARGET_SID = 144205764
+    # TARGET_AID = 411
+    # TARGET_SID = 7977150
+    # df = pd.read_csv(os.path.join(ANOTHER_FAILED_CSV_DIR, f'{TARGET_AID}.csv'), index_col=0)
+    # df = df.query("SID == @TARGET_SID")
+    # df['Response'] = df['Response']*-1
+    # ac50s = fit_assay_to_hill(df)
+    # df = df.merge(ac50s).dropna()
+    # #df = df[df.TOP > 80]
+    # #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
+    # plot_dosresponse(df, TARGET_SID)
 
+    print(len(TARGET_ASSAYS))
+    print(len(PASSED_CSV) + len(ANOTHER_FAILED_CSV))
 
-
-
+    sqlite_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
+    build_sql_db(sqlite_file)

@@ -23,4 +23,7 @@ but for very large assays (> 1,000 SIDs), you need to use a list key.  For that 
  a. Identify the columns that refer to a single concentration response.  
  b. Extract concentrations and units.    
  
+ 2) Some responses are negative (e.g., -% inhibition, AID 411) which causes the hill equation to give all negatives 
+ a. Could be as easy as just seeing of most of the concentrations are < 0 then multiplying by 1? 
+ 
  The Notebook `column_exploration.ipynb` displays what we're deadling with.  
