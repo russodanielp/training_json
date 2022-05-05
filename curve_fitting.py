@@ -136,17 +136,24 @@ def build_sql_db(DB_FILE):
     # create a counter for id
     LAST_ID = 1
 
+    FAILED_CSV_SQL = []
+
     # these files come from PUG-REST
     # the columns are not correct, I
     # reported the bug to the Pug-REST people
     # so we need to switch the concentration
     # and response units
     for assay in PASSED_CSV:
-        df = pd.read_csv(assay, index_col=0).rename(columns={'Concentration Unit': 'Response Unit',
-                                                             'Response Unit': 'Concentration Unit'})
-        ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
-        df['ID'] = ids
-        df.to_sql('dose_response', con=con, if_exists='append', index=False)
+
+        try:
+            df = pd.read_csv(assay, index_col=0).rename(columns={'Concentration Unit': 'Response Unit',
+                                                                 'Response Unit': 'Concentration Unit'})
+            ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
+            df['ID'] = ids
+            df.to_sql('dose_response', con=con, if_exists='append', index=False)
+        except:
+            FAILED_CSV_SQL.append(assay)
+
         print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
         COUNTER += 1
         LAST_ID = ids[-1]
@@ -154,11 +161,17 @@ def build_sql_db(DB_FILE):
     # do as normal.  Not every dataframe
     # has data.  Need to check why
     for assay in ANOTHER_FAILED_CSV:
-        df = pd.read_csv(assay)
 
-        ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
-        df['ID'] = ids
-        df.to_sql('dose_response', con=con, if_exists='append', index=False)
+        try:
+            df = pd.read_csv(assay)
+            if not df.empty:
+
+                ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
+                df['ID'] = ids
+                df.to_sql('dose_response', con=con, if_exists='append', index=False)
+        except:
+            FAILED_CSV_SQL.append(assay)
+
         print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
         COUNTER += 1
         LAST_ID = ids[-1]
