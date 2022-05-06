@@ -7,6 +7,7 @@ import json
 import config
 import glob
 import ntpath
+from curve_fitting import DR_AIDS
 
 
 # This is taken from the ASN specification file
@@ -45,6 +46,7 @@ ACITIVITY_MAPPER = {
                         None: None
                      }
 
+
 def parse_json(json_file: str) -> pd.DataFrame:
     """ parse a json file and convert to a dataframe in a similar fashion as the ones returned by PugREST
     the columns should be AID SID Concentration	Concentration Unit Response	Response Unit"""
@@ -56,11 +58,9 @@ def parse_json(json_file: str) -> pd.DataFrame:
                 shutil.copyfileobj(f_in, f_out)
         json_file = json_file_out
 
-
     f = open(json_file)
     json_data = json.load(f)
     f.close()
-
 
     # json files have two parts, results and
     # descriptions
@@ -183,17 +183,21 @@ def old():
         print(aid)
 
 
-def convert_json(target_dir):
+def convert_json(target_dir, check_file=False):
     """ convery the assays from failed sids into csvs like return by pubchem """
-    JSON_FILES = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'failed_aids', '*.json'))
+    JSON_FILES = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'json_dr', '*.json'))
 
     for json_file in JSON_FILES:
         base_filename = ntpath.basename(json_file).split('.')[0]
         csv_file = os.path.join(target_dir, '{}.csv'.format(base_filename))
+
+        if check_file and os.path.exists(csv_file):
+            continue
+
         if not os.path.exists(csv_file):
             df = parse_json(json_file)
             df.to_csv(csv_file, index=None)
 
 
 if __name__ == '__main__':
-    convert_json(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'another_failed_aids'))
+    convert_json(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json'))
