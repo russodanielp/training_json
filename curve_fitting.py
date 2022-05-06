@@ -28,7 +28,7 @@ ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
 
-
+DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
 def hill_curve(conc: float, ac50: float, top: float, slope: float) -> float:
     """ returns """
@@ -52,15 +52,20 @@ def find_folder(pubchem_aid: int) -> str:
     return string
 
 
-def read_aid(pubchem_aid: int) -> pd.DataFrame:
+def read_aid(pubchem_aid: int, just_columns=False) -> pd.DataFrame:
     """ given an aid, will find the appropriate folder and read the csv """
 
     aid_folder = find_folder(pubchem_aid)
     full_path = os.path.join(CONCISE_DATA_DIR, aid_folder, f'{pubchem_aid}.concise.csv')
 
+
     # DELETE ME ONLY USED FOR TESTING
     if not os.path.exists(full_path):
         return pd.DataFrame()
+
+    if just_columns:
+        return pd.read_csv(full_path, error_bad_lines=False, nrows=0).columns
+
 
     # DELETE ME ONLY USED FOR TESTING
     if os.path.exists(full_path) and pd.read_csv(full_path, error_bad_lines=False).empty:
@@ -72,7 +77,9 @@ def read_aid(pubchem_aid: int) -> pd.DataFrame:
     assay_results = pd.read_csv(full_path, error_bad_lines=False)
 
     # find index where header stops
-    idx = assay_results[assay_results.PUBCHEM_RESULT_TAG == '1'].index[0]
+    # or find where column is an integer
+    #idx = assay_results[assay_results.PUBCHEM_RESULT_TAG == '1'].index[0]
+    idx = assay_results[assay_results.PUBCHEM_RESULT_TAG.astype(str).str.isnumeric()].index[0]
     assay_results = assay_results.loc[idx:]
 
     return assay_results
@@ -119,7 +126,15 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
         f.write(str(column) + '\n')
     f.close()
 
+def move_concise_files():
+    """ move concise files from local to the box """
 
+
+    for pubchem_aid in DR_AIDS:
+        aid_folder = find_folder(pubchem_aid)
+        local_file_concise = os.path.join(config.Config.LOCAL_CONCISE, aid_folder, f'{pubchem_aid}.concise.csv')
+
+        new_dir = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'concise_dr')
 
 
 
@@ -176,6 +191,43 @@ def build_sql_db(DB_FILE):
         COUNTER += 1
         LAST_ID = ids[-1]
 
+
+def add_concise_sql():
+    """ add all the corresponding consise data files to the sqlite database """
+
+    sqlite_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
+
+    LAST_ID = 1
+    ALL_COLUMNS = []
+
+    # need to first read all the columns
+    # inorder to create the table in sql
+    # and make sure its frame has the same columns
+    for aid in DR_AIDS:
+        assay_data_columns = read_aid(aid, just_columns=True)
+        ALL_COLUMNS.extend(list(assay_data_columns))
+
+    ALL_COLUMNS = list(set(ALL_COLUMNS))
+
+    with sql.connect(sqlite_file) as con:
+
+        for aid in DR_AIDS:
+
+            concise_data = read_aid(aid)
+
+            if not concise_data.empty:
+                ids = list(range(LAST_ID, LAST_ID + concise_data.shape[0]))
+                concise_data['ID'] = ids
+
+                for col in ALL_COLUMNS:
+                    if col not in concise_data.columns:
+                        concise_data[col] = np.nan
+
+                concise_data.to_sql('concise', con=con, if_exists='append', index=False)
+
+                LAST_ID = ids[-1]
+
+
 def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
     """ takes assay information as a dataframe as will fit each SID to a hill curve and extract
     the apprioriate parameters """
@@ -207,6 +259,9 @@ def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
         data.append(vals)
 
     return pd.DataFrame(data, columns=['SID', 'AC50', 'TOP', 'SLOPE', 'SE', 'MSE', 'RMSE', 'R^2'])
+
+
+
 
 
 def plot_dosresponse(df, sid):
@@ -242,8 +297,4 @@ if __name__ == '__main__':
     # #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
     # plot_dosresponse(df, TARGET_SID)
 
-    print(len(TARGET_ASSAYS))
-    print(len(PASSED_CSV) + len(ANOTHER_FAILED_CSV))
-
-    sqlite_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
-    build_sql_db(sqlite_file)
+    add_concise_sql()
