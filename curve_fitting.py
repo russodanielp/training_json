@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import extractor as ext
 import ntpath
 import sqlite3 as sql
+import shutil
+import gzip
 
 
 CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
@@ -41,11 +43,23 @@ def find_folder(pubchem_aid: int) -> str:
      0000001_0001000, 0001001_0002000, etc.  This function takes a PubChem AID as input
      and finds the folder that aid would fall in.  """
 
-    # because the folders are stored in 1000 increments,
-    # taking the modulus of 1000 gives the remainder needed
-    # to round down.  Then, add one.
-    lower_bound = pubchem_aid - (pubchem_aid % 1000) + 1
-    upper_bound = lower_bound + 1000 - 1
+    # first handle the unique case where
+    # the aid falls on the first 1000,
+    # e.g., 687000 should be in folder
+    # 0686001_0687000
+    if (pubchem_aid % 1000) == 0:
+        upper_bound = pubchem_aid
+        lower_bound = upper_bound - 999
+    else:
+        # because the folders are stored in 1000 increments,
+        # taking the modulus of 1000 gives the remainder needed
+        # to round down.  Then, add one.
+        lower_bound = pubchem_aid - (pubchem_aid % 1000) + 1
+        upper_bound = lower_bound + 1000 - 1
+
+        # throw a test to check the aid is in the
+        # folder range
+        assert (lower_bound <= pubchem_aid) and (pubchem_aid <= upper_bound)
 
     # both strings need to be 7 digits long
     string = str(lower_bound).zfill(7) + '_' + str(upper_bound).zfill(7)
@@ -126,17 +140,30 @@ def find_columns_nada(to_csv=False, unique=False) -> list:
         f.write(str(column) + '\n')
     f.close()
 
+
 def move_concise_files():
     """ move concise files from local to the box """
-
 
     for pubchem_aid in DR_AIDS:
         aid_folder = find_folder(pubchem_aid)
         local_file_concise = os.path.join(config.Config.LOCAL_CONCISE, aid_folder, f'{pubchem_aid}.concise.csv')
 
-        new_dir = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'concise_dr')
+        new_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'concise_dr', f'{pubchem_aid}.concise.csv')
+        shutil.copyfile(local_file_concise, new_file)
 
 
+def move_json_files():
+    """ move json files from local to the box """
+
+    for pubchem_aid in DR_AIDS:
+        aid_folder = find_folder(pubchem_aid)
+        local_file_json = os.path.join(config.Config.LOCAL_JSON, aid_folder, f'{pubchem_aid}.json.gz')
+
+        new_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'json_dr', f'{pubchem_aid}.json')
+
+        with gzip.open(local_file_json, 'rb') as f_in:
+            with open(new_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
 
 def build_sql_db(DB_FILE):
     """ build a sqlite database from all the converted CSV files
@@ -297,4 +324,4 @@ if __name__ == '__main__':
     # #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
     # plot_dosresponse(df, TARGET_SID)
 
-    add_concise_sql()
+    move_json_files()
