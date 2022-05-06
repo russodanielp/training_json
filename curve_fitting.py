@@ -29,6 +29,7 @@ FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
 ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
+CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json'))
 
 DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
@@ -180,25 +181,6 @@ def build_sql_db(DB_FILE):
 
     FAILED_CSV_SQL = []
 
-    # these files come from PUG-REST
-    # the columns are not correct, I
-    # reported the bug to the Pug-REST people
-    # so we need to switch the concentration
-    # and response units
-    for assay in PASSED_CSV:
-
-        try:
-            df = pd.read_csv(assay, index_col=0).rename(columns={'Concentration Unit': 'Response Unit',
-                                                                 'Response Unit': 'Concentration Unit'})
-            ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
-            df['ID'] = ids
-            df.to_sql('dose_response', con=con, if_exists='append', index=False)
-        except:
-            FAILED_CSV_SQL.append(assay)
-
-        print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
-        COUNTER += 1
-        LAST_ID = ids[-1]
     # for the converted ones just
     # do as normal.  Not every dataframe
     # has data.  Need to check why
@@ -218,6 +200,11 @@ def build_sql_db(DB_FILE):
         COUNTER += 1
         LAST_ID = ids[-1]
 
+    error_file = os.path.join(os.path.dirname(DB_FILE), 'failed_aids.csv')
+
+    with open(error_file, 'w') as f:
+        for aid in FAILED_CSV_SQL:
+            f.write(str(aid) + "\n")
 
 def add_concise_sql():
     """ add all the corresponding consise data files to the sqlite database """
