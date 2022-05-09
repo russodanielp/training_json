@@ -43,7 +43,8 @@ ACITIVITY_MAPPER = {
                         27: " mg-kg",
                         254: "none",
                         255: "unspecified",
-                        None: None
+                        None: None,
+                        0: None
                      }
 
 
@@ -98,8 +99,19 @@ def parse_json(json_file: str) -> pd.DataFrame:
             # do this properly....
             if response["value"].get("fval", "Missing") != "Missing":
                 cmp_data[response["tid"]] = response["value"]["fval"]
-            else:
-                cmp_data[response["tid"]] = float(response["value"]["sval"])
+            if response["value"].get("ival", "Missing") != "Missing":
+                cmp_data[response["tid"]] = response["value"]["ival"]
+            elif response["value"].get("sval", "Missing") != "Missing":
+                # try to convery the string value
+                # a float, but sometimes there are
+                # qualifiers like '>' in which
+                # case just store the string
+                try:
+                    cmp_data[response["tid"]] = float(response["value"]["sval"])
+                except ValueError:
+                    cmp_data[response["tid"]] = str(response["value"]["sval"])
+                    val = response["value"]["sval"]
+                    print(f"{json_file} has string concentration: {val}")
         result_dic[sid] = cmp_data
 
     responses = pd.DataFrame(result_dic)
@@ -195,8 +207,11 @@ def convert_json(target_dir, check_file=False):
             continue
 
         if not os.path.exists(csv_file):
-            df = parse_json(json_file)
-            df.to_csv(csv_file, index=None)
+            try:
+                df = parse_json(json_file)
+                df.to_csv(csv_file, index=None)
+            except json.decoder.JSONDecodeError:
+                print(f"JSON Decode Error on {json_file}")
 
 
 if __name__ == '__main__':
