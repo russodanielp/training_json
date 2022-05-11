@@ -29,7 +29,7 @@ FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
 ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
-CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json'))
+CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json', '*.csv'))
 
 DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
@@ -173,7 +173,7 @@ def build_sql_db(DB_FILE):
 
     con = sql.connect(DB_FILE)
 
-    TOTAL_ASSAYS = len(PASSED_CSV) + len(ANOTHER_FAILED_CSV)
+    TOTAL_ASSAYS = len(PASSED_CSV) + len(CONVERTED_CSV)
     COUNTER = 1
 
     # create a counter for id
@@ -184,7 +184,7 @@ def build_sql_db(DB_FILE):
     # for the converted ones just
     # do as normal.  Not every dataframe
     # has data.  Need to check why
-    for assay in ANOTHER_FAILED_CSV:
+    for assay in CONVERTED_CSV:
 
         try:
             df = pd.read_csv(assay)
@@ -193,12 +193,17 @@ def build_sql_db(DB_FILE):
                 ids = list(range(LAST_ID, LAST_ID+df.shape[0]))
                 df['ID'] = ids
                 df.to_sql('dose_response', con=con, if_exists='append', index=False)
+                LAST_ID = ids[-1]
+            else:
+                print(f"{assay} if empty!")
+                FAILED_CSV_SQL.append(assay)
         except:
             FAILED_CSV_SQL.append(assay)
 
+
         print(f"{COUNTER / TOTAL_ASSAYS * 100}% Completed")
         COUNTER += 1
-        LAST_ID = ids[-1]
+
 
     error_file = os.path.join(os.path.dirname(DB_FILE), 'failed_aids.csv')
 
@@ -310,5 +315,6 @@ if __name__ == '__main__':
     # #df = df[df.TOP > 80]
     # #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
     # plot_dosresponse(df, TARGET_SID)
-
-    move_json_files()
+    sql_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
+    print(CONVERTED_CSV)
+    build_sql_db(sql_file)
