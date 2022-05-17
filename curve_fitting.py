@@ -30,6 +30,7 @@ ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
 CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json', '*.csv'))
+CONCISE_CSVS = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'concise_dr', '*.csv'))
 
 DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
@@ -100,6 +101,27 @@ def read_aid(pubchem_aid: int, just_columns=False) -> pd.DataFrame:
     return assay_results
 
 
+def read_concise_aid(pubchem_aid_file: str, just_columns=False) -> pd.DataFrame:
+    """ given an aid, will find the appropriate folder and read the csv """
+
+
+    if just_columns:
+        return pd.read_csv(pubchem_aid_file, error_bad_lines=False, nrows=0).columns
+
+    # the first n rows are a header
+    # that describes the data
+    # dose response example is 434931
+    assay_results = pd.read_csv(pubchem_aid_file, error_bad_lines=False)
+
+    # find index where header stops
+    # or find where column is an integer
+    #idx = assay_results[assay_results.PUBCHEM_RESULT_TAG == '1'].index[0]
+    idx = assay_results[assay_results.PUBCHEM_RESULT_TAG.astype(str).str.isnumeric()].index[0]
+    assay_results = assay_results.loc[idx:]
+
+    return assay_results
+
+
 def find_unique_columns() -> list:
     """ finds and prints the unique columns across the set of concise csv """
     all_columns = []
@@ -112,6 +134,25 @@ def find_unique_columns() -> list:
 
     return list(set(all_columns))
 
+def find_empty_csv() -> int:
+    """ in the csv_from_json folder there is a number of csv files that are empty
+     this function just counts and returns that number """
+
+    empty_counter = 0
+
+    for assay in CONVERTED_CSV:
+
+        aid = os.path.basename(assay).split('.')[0]
+        try:
+            df = pd.read_csv(assay, nrows=5)
+        except pd.errors.ParserError as e:
+            print(f"Parser error on {aid}")
+            continue
+
+        if df.empty:
+            empty_counter = empty_counter + 1
+    print(f"There are {empty_counter} assays with no data!")
+    return empty_counter
 
 def find_columns_nada(to_csv=False, unique=False) -> list:
     """ finds and prints the unique columns across the set of failed csvs
@@ -173,7 +214,7 @@ def build_sql_db(DB_FILE):
 
     con = sql.connect(DB_FILE)
 
-    TOTAL_ASSAYS = len(PASSED_CSV) + len(CONVERTED_CSV)
+    TOTAL_ASSAYS = len(CONVERTED_CSV)
     COUNTER = 1
 
     # create a counter for id
@@ -211,10 +252,9 @@ def build_sql_db(DB_FILE):
         for aid in FAILED_CSV_SQL:
             f.write(str(aid) + "\n")
 
-def add_concise_sql():
+def add_concise_sql(DB_FILE):
     """ add all the corresponding consise data files to the sqlite database """
 
-    sqlite_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
 
     LAST_ID = 1
     ALL_COLUMNS = []
@@ -222,17 +262,21 @@ def add_concise_sql():
     # need to first read all the columns
     # inorder to create the table in sql
     # and make sure its frame has the same columns
-    for aid in DR_AIDS:
-        assay_data_columns = read_aid(aid, just_columns=True)
+    for aid_file in CONCISE_CSVS:
+        assay_data_columns = read_concise_aid(aid_file, just_columns=True)
         ALL_COLUMNS.extend(list(assay_data_columns))
 
     ALL_COLUMNS = list(set(ALL_COLUMNS))
 
-    with sql.connect(sqlite_file) as con:
+    with sql.connect(DB_FILE) as con:
 
-        for aid in DR_AIDS:
+        for aid_file in CONCISE_CSVS:
 
-            concise_data = read_aid(aid)
+            aid = int(os.path.basename(aid_file).replace('.concise.csv', ''))
+
+            # add aid
+            concise_data = read_concise_aid(aid_file)
+            concise_data['PUBCHEM_AID'] = aid
 
             if not concise_data.empty:
                 ids = list(range(LAST_ID, LAST_ID + concise_data.shape[0]))
@@ -247,7 +291,21 @@ def add_concise_sql():
                 LAST_ID = ids[-1]
 
 
-def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
+def add_targets(DB_FILE):
+    """ add all the target datat o the sql database """
+
+    target_file = 'data/target_info.csv'
+    target_data = pd.read_csv(target_file, index_col=0)
+
+    with sql.connect(DB_FILE) as con:
+
+        target_data.to_sql('targets', con=con, if_exists='replace', index=True)
+
+
+
+
+
+def fit_assay_to_hill(df: pd.DataFrame, check_direction=True) -> pd.DataFrame:
     """ takes assay information as a dataframe as will fit each SID to a hill curve and extract
     the apprioriate parameters """
 
@@ -259,6 +317,14 @@ def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
     for sid, sid_data in df.groupby('SID'):
         x = sid_data['Concentration'].values
         y = sid_data['Response'].values
+
+        if check_direction:
+            # if 90% of the responses
+            # are less than zero assume
+            # the analysis direction
+            # is negative
+            if sum(y <= 0) / y.shape[0] <= 0.9:
+                y = y * -1
         init_params = np.array([1, 1, 1.0])
 
         try:
@@ -280,9 +346,6 @@ def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(data, columns=['SID', 'AC50', 'TOP', 'SLOPE', 'SE', 'MSE', 'RMSE', 'R^2'])
 
 
-
-
-
 def plot_dosresponse(df, sid):
     df = df[df.SID == sid]
     df['Concentration_Log'] = np.log10(df['Concentration'].astype(float))
@@ -301,6 +364,59 @@ def plot_dosresponse(df, sid):
 
     plt.show()
 
+
+def fit_curves(NEW_DIR):
+    """ read the csv files and try and fit a hill curve to each each
+
+     """
+    # number of concentration
+    # a chemical has to have
+    # to be fit for a curve
+
+    MINIMUM_CONC_POINTS = 4
+
+    if not os.path.exists(NEW_DIR):
+        os.mkdir(NEW_DIR)
+
+    TOTAL_ASSAYS = len(PASSED_CSV) + len(CONVERTED_CSV)
+    COUNTER = 1
+
+    # create a counter for id
+    LAST_ID = 1
+
+    FAILED_CSV_SQL = []
+
+    # for the converted ones just
+    # do as normal.  Not every dataframe
+    # has data.  Need to check why
+    for assay in CONVERTED_CSV:
+
+
+        aid = os.path.basename(assay).split('.')[0]
+        print(aid)
+        fitted_file = os.path.join(NEW_DIR, f'{aid}_fitted.csv')
+        if os.path.exists(fitted_file):
+            print("Fitted file created, skipping...")
+            continue
+        try:
+            df = pd.read_csv(assay)
+
+            if not df.empty:
+                # remove compounds without the minimum
+                # number of concentration points
+                df = df.groupby('SID').filter(lambda sid: sid.Concentration.nunique() >= MINIMUM_CONC_POINTS)
+                ac50s = fit_assay_to_hill(df)
+                ac50s.to_csv(fitted_file)
+
+            else:
+                print(f"{assay} empty!")
+        except Exception as e:
+            print(f"{assay} failed: {e}!")
+
+
+
+
+
 if __name__ == '__main__':
 
     #TARGET_AID = 1346983
@@ -315,6 +431,11 @@ if __name__ == '__main__':
     # #df = df[df.TOP > 80]
     # #print(df.sort_values(['RMSE'], ascending=[True]).iloc[:10])
     # plot_dosresponse(df, TARGET_SID)
-    sql_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', 'pubchem_dr.db')
-    print(CONVERTED_CSV)
-    build_sql_db(sql_file)
+    #sql_file = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'SQLite', )
+    sql_file = os.path.join("/Volumes", "TOSHIBA EXT", "data", "nada", "SQLIte", "pubchem_dr.db")
+
+    # ac50_dir = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'ac50s')
+    # fit_curves(ac50_dir)
+    #build_sql_db(sql_file)
+    add_concise_sql(sql_file)
+    #targets(sql_file)
