@@ -30,7 +30,7 @@ ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
 PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
 ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
 CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json', '*.csv'))
-CONCISE_CSVS = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'concise_dr', '*.csv'))
+CONCISE_CSVS = glob.glob(os.path.join("/Volumes", "TOSHIBA EXT", "data", "nada", "concise_dr", "*.csv"))
 
 DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
@@ -263,21 +263,22 @@ def add_concise_sql(DB_FILE):
     # inorder to create the table in sql
     # and make sure its frame has the same columns
     for aid_file in CONCISE_CSVS:
+        print(aid_file)
         assay_data_columns = read_concise_aid(aid_file, just_columns=True)
         ALL_COLUMNS.extend(list(assay_data_columns))
 
-    ALL_COLUMNS = list(set(ALL_COLUMNS))
+    ALL_COLUMNS = list(set([col.upper() for col in ALL_COLUMNS]))
 
     with sql.connect(DB_FILE) as con:
 
         for aid_file in CONCISE_CSVS:
 
             aid = int(os.path.basename(aid_file).replace('.concise.csv', ''))
-
+            print(aid)
             # add aid
             concise_data = read_concise_aid(aid_file)
             concise_data['PUBCHEM_AID'] = aid
-
+            concise_data.columns = [col.upper() for col in concise_data.columns]
             if not concise_data.empty:
                 ids = list(range(LAST_ID, LAST_ID + concise_data.shape[0]))
                 concise_data['ID'] = ids

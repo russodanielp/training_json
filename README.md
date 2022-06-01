@@ -28,6 +28,9 @@ but for very large assays (> 1,000 SIDs), you need to use a list key.  For that 
  
  The Notebook `column_exploration.ipynb` displays what we're deadling with.  
  
+ It appears the Box account has a file size limit of 15G, meaning the SQLite database
+  would not fit.  
+ 
  ### Building database
  
  Okay, so, looks like the easiest path was just to parse all the JSON files for dose response information directly.  Because
