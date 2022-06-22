@@ -17,25 +17,25 @@ def curveP(data,
     """ take from alex books chapter curveP https://link.springer.com/content/pdf/10.1007/978-1-0716-2213-1.pdf """
 
 
-    data = data.sort_values('log(conc)')
-    curve_direction = data.iloc[0].resp - data.iloc[-1].resp
+    data = data.sort_values('log(Concentration)')
+    curve_direction = data.iloc[0].Response - data.iloc[-1].Response
 
 
     # check for baseline noise
-    data.loc[data.resp.abs() < THR, 'resp'] = 0
+    data.loc[data.Response.abs() < THR, 'Response'] = 0
     # curve direction is > 0
     # means descendning
     # change max response direction
-    data.loc[data.resp.abs() > RNP, 'resp'] = -1 * RNP if curve_direction > 0 else RNP
+    data.loc[data.Response.abs() > RNP, 'Response'] = -1 * RNP if curve_direction > 0 else RNP
 
     # correct blips
-    if (abs(data.iloc[0].resp) > 0) and (data.iloc[1].resp == 0 and data.iloc[2].resp == 0):
-        data.loc[data.index[0], 'resp'] = 0
+    if (abs(data.iloc[0].Response) > 0) and (data.iloc[1].Response == 0 and data.iloc[2].Response == 0):
+        data.loc[data.index[0], 'Response'] = 0
 
 
 
     # find poiints that violate global directions
-    gds = (abs(curve_direction) + MXDV < (data.resp - data.iloc[0].resp).abs())
+    gds = (abs(curve_direction) + MXDV < (data.Response - data.iloc[0].Response).abs())
 
     if gds.sum() < 2:
         # step 9
@@ -44,7 +44,7 @@ def curveP(data,
     # get directions
     # if increasing, -1
     # if decreasing, 1
-    diffs = data.resp.diff().fillna(0)
+    diffs = data.Response.diff().fillna(0)
     signs = diffs.copy()
     signs[diffs.abs() <= MXDV] = 0
     signs[(diffs.abs() > MXDV) & (diffs > 0)] = -1
@@ -56,6 +56,6 @@ def curveP(data,
     # assign incorrect data points
     # the previous value
     data_corrected = data.copy()
-    data_corrected.loc[~correct_direction, 'resp'] = np.nan
-    data_corrected['resp'] = data_corrected['resp'].fillna(method='ffill')
+    data_corrected.loc[~correct_direction, 'Response'] = np.nan
+    data_corrected['Response'] = data_corrected['Response'].fillna(method='ffill')
     return data_corrected

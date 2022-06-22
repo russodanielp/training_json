@@ -17,22 +17,23 @@ import ntpath
 import sqlite3 as sql
 import shutil
 import gzip
+from curvep import curveP
 
 
-CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
-FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'failed_aids')
-ANOTHER_FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'another_failed_aids')
-PASSED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'AID')
-ASSAY_FOLDERS = glob.glob(os.path.join(CONCISE_DATA_DIR, '*'))
-TARGET_ASSAYS = sorted(pd.read_table(os.path.join('data', 'dr_aids.txt'), header=None)[0].values.tolist())
-FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
-ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
-PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
-ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
-CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json', '*.csv'))
-CONCISE_CSVS = glob.glob(os.path.join("/Volumes", "TOSHIBA EXT", "data", "nada", "concise_dr", "*.csv"))
+# CONCISE_DATA_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'pubchem', 'bioassay', 'concise_csv', 'all')
+# FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'failed_aids')
+# ANOTHER_FAILED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'another_failed_aids')
+# PASSED_CSV_DIR = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'AID')
+# ASSAY_FOLDERS = glob.glob(os.path.join(CONCISE_DATA_DIR, '*'))
+# TARGET_ASSAYS = sorted(pd.read_table(os.path.join('data', 'dr_aids.txt'), header=None)[0].values.tolist())
+# FAILED_CSV = glob.glob(os.path.join(FAILED_CSV_DIR, '*.csv'))
+# ANOTHER_FAILED_CSV = glob.glob(os.path.join(ANOTHER_FAILED_CSV_DIR, '*.csv'))
+# PASSED_CSV = glob.glob(os.path.join(PASSED_CSV_DIR, '*.csv'))
+# ALL_ASSAY_CSV = ANOTHER_FAILED_CSV + PASSED_CSV
+# CONVERTED_CSV = glob.glob(os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'csv_from_json', '*.csv'))
+# CONCISE_CSVS = glob.glob(os.path.join("/Volumes", "TOSHIBA EXT", "data", "nada", "concise_dr", "*.csv"))
 
-DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
+#DR_AIDS = pd.read_table('data/dr_aids.txt', header=None, names=['AIDS'])['AIDS'].values.tolist()
 
 def hill_curve(conc: float, ac50: float, top: float, slope: float) -> float:
     """ returns """
@@ -306,7 +307,7 @@ def add_targets(DB_FILE):
 
 
 
-def fit_assay_to_hill(df: pd.DataFrame, check_direction=True) -> pd.DataFrame:
+def fit_assay_to_hill(df: pd.DataFrame) -> pd.DataFrame:
     """ takes assay information as a dataframe as will fit each SID to a hill curve and extract
     the apprioriate parameters """
 
@@ -318,18 +319,26 @@ def fit_assay_to_hill(df: pd.DataFrame, check_direction=True) -> pd.DataFrame:
     for sid, sid_data in df.groupby('SID'):
         x = sid_data['Concentration'].values
         y = sid_data['Response'].values
+        direction = sid_data['Direction'].values[0]
+        if direction == 'Descending':
+            y = y*-1
 
-        if check_direction:
-            # if 90% of the responses
-            # are less than zero assume
-            # the analysis direction
-            # is negative
-            if sum(y <= 0) / y.shape[0] <= 0.9:
-                y = y * -1
-        init_params = np.array([1, 1, 1.0])
+
+        init_params = np.array([1, y.max(), 1.0])
 
         try:
-            fit_params, pcov = curve_fit(hill_curve, x, y, init_params)
+            # changing maxfev could possible solve
+            # the number of NaNs?
+            # seems like it was the slope that was
+            # the parameter that was not being able to
+            # be found....fixed with bounds
+            fit_params, pcov = curve_fit(hill_curve,
+                                         x,
+                                         y,
+                                         init_params,
+                                         bounds=([-np.inf, min(0, y.max()), 0.3], [np.inf, 120, 8]), # constrains found in TCPL vignette
+                                         maxfev=5000
+                                         )
             model_preds = hill_curve(x, *fit_params)
             error = model_preds - y
             SE = np.square(error)  # squared errors
@@ -339,13 +348,33 @@ def fit_assay_to_hill(df: pd.DataFrame, check_direction=True) -> pd.DataFrame:
 
             vals = [sid] + list(fit_params) + [SE, MSE, RMSE, Rsquared]
 
+            # if the direction fit is negative, convert the top
+            # to negative
+            if direction == "Descending":
+                vals[2] = -1*vals[2]
+
         except RuntimeError as e:
+            # runtime error is usually
+            # that the parameters for the fit
+            # were not found
             vals = [sid, None, None, None, None, None, None, None]
 
         data.append(vals)
 
     return pd.DataFrame(data, columns=['SID', 'AC50', 'TOP', 'SLOPE', 'SE', 'MSE', 'RMSE', 'R^2'])
 
+
+def check_direction(df: pd.DataFrame) -> bool:
+    """  check the analysis direction to find if the chemical results in a positive or negastive response
+     NOTE: does not account for complete loss of signal at high concentrations """
+    data = df.sort_values('log(Concentration)')
+    curve_direction = data.iloc[0].Response - data.iloc[-1].Response
+    # curve direction is > 0
+    # means descendning
+    data['Direction'] = 'Ascending' if curve_direction <= 0 else 'Descending'
+
+
+    return data
 
 def plot_dosresponse(df, sid):
     df = df[df.SID == sid]
@@ -366,9 +395,13 @@ def plot_dosresponse(df, sid):
     plt.show()
 
 
-def fit_curves(NEW_DIR):
-    """ read the csv files and try and fit a hill curve to each each
+def fit_curves(DB_FILE):
+    """ fits tries to fit every unique assay available in the dose response table
+    to a hill curve....it will only fit "ACTIVE" chemicals i.e., CIDs defined as active
+    in the concise assays
 
+    the curve fitting is processed in a similar manner to the TCPL package in R.
+    the vignette can be found here: https://cran.r-project.org/web/packages/tcpl/vignettes/Data_processing.html#uploading-and-processing-data
      """
     # number of concentration
     # a chemical has to have
@@ -376,10 +409,17 @@ def fit_curves(NEW_DIR):
 
     MINIMUM_CONC_POINTS = 4
 
-    if not os.path.exists(NEW_DIR):
-        os.mkdir(NEW_DIR)
+    # check if table already exists,
+    # and remove if it does, then
+    # get all unique AIDs in the
+    # dose_response database
+    with sql.connect(DB_FILE) as con:
 
-    TOTAL_ASSAYS = len(PASSED_CSV) + len(CONVERTED_CSV)
+        result = con.execute('DROP TABLE IF EXISTS hill_models;').fetchone()
+        print(result)
+        TOTAL_ASSAYS = pd.read_sql_query('SELECT DISTINCT PUBCHEM_AID FROM concise', con=con).PUBCHEM_AID.values.tolist()
+
+
     COUNTER = 1
 
     # create a counter for id
@@ -387,32 +427,74 @@ def fit_curves(NEW_DIR):
 
     FAILED_CSV_SQL = []
 
-    # for the converted ones just
-    # do as normal.  Not every dataframe
-    # has data.  Need to check why
-    for assay in CONVERTED_CSV:
 
 
-        aid = os.path.basename(assay).split('.')[0]
-        print(aid)
-        fitted_file = os.path.join(NEW_DIR, f'{aid}_fitted.csv')
-        if os.path.exists(fitted_file):
-            print("Fitted file created, skipping...")
+
+    for assay in TOTAL_ASSAYS:
+
+        # get all active CIDS for the assay
+        actives_query = 'SELECT c.PUBCHEM_CID as CID, c.PUBCHEM_AID as AID, c.PUBCHEM_SID as SID ' \
+                        'FROM concise c ' \
+                        'WHERE c.PUBCHEM_AID == {} AND c.PUBCHEM_ACTIVITY_OUTCOME == "Active" AND ' \
+                        'c.PUBCHEM_CID is not null AND c.PUBCHEM_SID is not null'.format(assay)
+
+        active_cmps = pd.read_sql_query(actives_query, con=config.Config.DB_URI)
+        active_cmps['SID'] = active_cmps['SID'].astype(int)
+
+        # now get the dose responses
+        sid_list = [str(sid) for sid in active_cmps.SID]
+
+        sid_string = ", ".join(map(str, sid_list))
+        sid_query = f'({sid_string})'
+
+        dr_query = 'SELECT  SID, AID, concentration as Concentration, response as Response ' \
+                   'FROM dose_response ' \
+                   'WHERE AID == {} AND SID in {} '.format(assay, sid_query)
+
+        dose_responses = pd.read_sql_query(dr_query, con=config.Config.DB_URI)
+        if dose_responses.empty:
+            print(f"skipping {assay}")
             continue
-        try:
-            df = pd.read_csv(assay)
 
-            if not df.empty:
-                # remove compounds without the minimum
-                # number of concentration points
-                df = df.groupby('SID').filter(lambda sid: sid.Concentration.nunique() >= MINIMUM_CONC_POINTS)
-                ac50s = fit_assay_to_hill(df)
-                ac50s.to_csv(fitted_file)
+        from pandas.api.types import is_numeric_dtype
+        if not is_numeric_dtype(dose_responses['Response']):
+            print(dose_responses)
+            print(f"skipping {assay}")
+            continue
+        # remove compounds where there
+        # are not enough data points
+        dose_responses = dose_responses.groupby(['AID', 'SID']).filter(lambda sid: sid.Concentration.nunique() >= MINIMUM_CONC_POINTS)
+        if dose_responses.empty:
+            print(f"skipping {assay}")
+            continue
 
-            else:
-                print(f"{assay} empty!")
-        except Exception as e:
-            print(f"{assay} failed: {e}!")
+        # avg responses per SID
+        # TODO: could possibly find a way to do this w/o averaging?
+        dose_responses['log(Concentration)'] = np.log10(dose_responses.Concentration)
+        dose_responses['log(Concentration)'] = dose_responses['log(Concentration)'].round(2)
+
+        # average multiple responses per concentration
+        # then apply curveP to correct points
+        response_avg = dose_responses.groupby(['AID', 'SID', 'log(Concentration)'])['Response'].mean().reset_index()
+        response_avg_corrected = response_avg.groupby(['AID', 'SID']).apply(curveP).reset_index(drop=True)
+        if response_avg_corrected.empty:
+            break
+        print(response_avg_corrected.head())
+        data = response_avg_corrected.groupby(['AID', 'SID']).apply(check_direction).reset_index(drop=True)
+        data['Concentration'] = 10**data['log(Concentration)']
+        ac50s = fit_assay_to_hill(data)
+        ac50s['AID'] = assay
+
+        ids = list(range(LAST_ID, LAST_ID + ac50s.shape[0]))
+
+        ac50s['ID'] = ids
+
+        ac50s.to_sql('hill_models', con=con, if_exists='append', index=False)
+
+        LAST_ID = ids[-1]
+
+
+
 
 
 
@@ -438,5 +520,6 @@ if __name__ == '__main__':
     # ac50_dir = os.path.join(config.Config.BOX_PATH, 'DATA', 'Nada', 'ac50s')
     # fit_curves(ac50_dir)
     #build_sql_db(sql_file)
-    add_concise_sql(sql_file)
+    #add_concise_sql(sql_file)
+    fit_curves(sql_file)
     #targets(sql_file)
