@@ -395,7 +395,7 @@ def plot_dosresponse(df, sid):
     plt.show()
 
 
-def fit_curves(DB_FILE):
+def fit_curves(DB_FILE, aid_exists_check=False):
     """ fits tries to fit every unique assay available in the dose response table
     to a hill curve....it will only fit "ACTIVE" chemicals i.e., CIDs defined as active
     in the concise assays
@@ -414,9 +414,8 @@ def fit_curves(DB_FILE):
     # get all unique AIDs in the
     # dose_response database
     with sql.connect(DB_FILE) as con:
-
-        result = con.execute('DROP TABLE IF EXISTS hill_models;').fetchone()
-        print(result)
+        if not aid_exists_check:
+            result = con.execute('DROP TABLE IF EXISTS hill_models;').fetchone()
         TOTAL_ASSAYS = pd.read_sql_query('SELECT DISTINCT PUBCHEM_AID FROM concise', con=con).PUBCHEM_AID.values.tolist()
 
 
@@ -431,6 +430,11 @@ def fit_curves(DB_FILE):
 
 
     for assay in TOTAL_ASSAYS:
+        if aid_exists_check:
+            result = con.execute('SELECT * FROM hill_models WHERE AID == {}'.format(assay)).fetchone()
+            if result:
+                print("Already processed {} skipping...".format(assay))
+                continue
 
         # get all active CIDS for the assay
         actives_query = 'SELECT c.PUBCHEM_CID as CID, c.PUBCHEM_AID as AID, c.PUBCHEM_SID as SID ' \
@@ -521,5 +525,5 @@ if __name__ == '__main__':
     # fit_curves(ac50_dir)
     #build_sql_db(sql_file)
     #add_concise_sql(sql_file)
-    fit_curves(sql_file)
+    fit_curves(sql_file, aid_exists_check=True)
     #targets(sql_file)
