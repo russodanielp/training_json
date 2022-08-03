@@ -35,12 +35,12 @@ counts = (
           )
 sns.set_context("talk")
 sns.set_style("ticks")
-# sns.boxplot(data=tox_rel[top_targets_], color="grey")
-#
-# plt.ylabel("Toxicity Relevance\n[(PPV + Sens) /2]")
-# locs, labels = plt.xticks()
-# plt.setp(labels, rotation=45, ha="right")
-# plt.show(transparent=True)
+sns.boxplot(data=tox_rel[top_targets_], color="grey")
+
+plt.ylabel("Toxicity Relevance\n[(PPV + Sens) /2]")
+locs, labels = plt.xticks()
+plt.setp(labels, rotation=45, ha="right")
+plt.show(transparent=True)
 
 
 

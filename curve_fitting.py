@@ -41,6 +41,22 @@ def hill_curve(conc: float, ac50: float, top: float, slope: float) -> float:
     return top * (np.power(conc, slope) / denom)
 
 
+def auc_score(cr):
+    """ give a dataframe with receptors as index and concentraions as columns
+    will calculated the auc score for each given receptor """
+    signs = np.sign(cr.diff(axis=1).fillna(1))
+    # signs[signs < -0.01] = -1
+    # signs[signs >= -0.01] = 1
+
+    # calc AUC as score = score + sign*x[i]
+    # then divide by number of concentrations
+    scores = (signs*cr).sum(1) / signs.shape[1]
+
+    # determine if the bulk of the curve is
+    # the pos or negative direction
+    directions = np.sign(cr.sum(1))
+    return scores.round(3) * directions
+
 def find_folder(pubchem_aid: int) -> str:
     """ PubChem assays are stored in folders containing 1000 assays.  E.g.,
      0000001_0001000, 0001001_0002000, etc.  This function takes a PubChem AID as input
